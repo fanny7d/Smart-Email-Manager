@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, type Account, type ImportBatch, type MailAttachment } from './api/client'
+import { resolveMailboxSelection } from './mailboxSelection'
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <div className="empty-state">{children}</div>
@@ -421,7 +422,17 @@ export function SettingsView({ accounts }: { accounts: Account[] }) {
 }
 
 
-export function MailView({ accounts }: { accounts: Account[] }) {
+export function MailView({
+  accounts,
+  hasNextPage,
+  isFetchingNextPage,
+  loadNextPage,
+}: {
+  accounts: Account[]
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  loadNextPage: () => void
+}) {
   const queryClient = useQueryClient()
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? '')
   const [accountQuery, setAccountQuery] = useState('')
@@ -431,12 +442,18 @@ export function MailView({ accounts }: { accounts: Account[] }) {
   const [folder, setFolder] = useState<'inbox' | 'junkemail' | 'deleteditems' | 'all'>('inbox')
   const [recentMinutes, setRecentMinutes] = useState(30)
   const [copiedCode, setCopiedCode] = useState('')
-  useEffect(() => {
-    if (accounts.length && !accounts.some((account) => account.id === accountId)) setAccountId(accounts[0].id)
-  }, [accountId, accounts])
   const groups = useQuery({ queryKey: ['groups'], queryFn: api.groups })
   const mail = useQuery({ queryKey: ['mail', accountId, folder], queryFn: () => api.mail(accountId, folder), enabled: Boolean(accountId), retry: false })
   const codes = useMutation({ mutationFn: () => api.verificationCodes(accountId, recentMinutes) })
+  useEffect(() => {
+    const replacementId = resolveMailboxSelection(accounts, accountId, groupId)
+    if (replacementId === accountId) return
+    setAccountId(replacementId)
+    setMessageId('')
+    setMessageFolder('')
+    setCopiedCode('')
+    codes.reset()
+  }, [accountId, accounts, groupId])
   const detailFolder = messageFolder || (folder === 'all' ? 'inbox' : folder)
   const detail = useQuery({ queryKey: ['mail-detail', accountId, detailFolder, messageId], queryFn: () => api.mailDetail(accountId, messageId, detailFolder), enabled: Boolean(accountId && messageId), retry: false })
   useEffect(() => {
@@ -482,8 +499,8 @@ export function MailView({ accounts }: { accounts: Account[] }) {
   }
   const chooseGroup = (nextGroupId: string) => {
     setGroupId(nextGroupId)
-    const firstMatch = accounts.find((account) => !nextGroupId || account.group_id === nextGroupId)
-    if (firstMatch && firstMatch.id !== accountId) chooseAccount(firstMatch.id)
+    const nextAccountId = resolveMailboxSelection(accounts, accountId, nextGroupId)
+    if (nextAccountId !== accountId) chooseAccount(nextAccountId)
   }
   const copyCode = async (code: string) => {
     await navigator.clipboard.writeText(code)
@@ -505,7 +522,7 @@ export function MailView({ accounts }: { accounts: Account[] }) {
           <select aria-label="邮箱分组" value={groupId} onChange={(event) => chooseGroup(event.target.value)}><option value="">全部邮箱</option>{groups.data?.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select>
         </div>
         <div className="mail-account-list">{visibleAccounts.map((account) => <button className={account.id === accountId ? 'selected-row' : ''} type="button" onClick={() => chooseAccount(account.id)} key={account.id}><span className={`health-dot health-${account.mail_health_status}`} aria-hidden="true" /><span><strong>{account.email}</strong><small>{healthLabel(account)}</small></span></button>)}{!visibleAccounts.length && <Empty>没有匹配的邮箱</Empty>}</div>
-        <div className="mail-account-footer">已加载 {accounts.length} 个邮箱</div>
+        <div className="mail-account-footer"><span>已加载 {accounts.length} 个邮箱</span><button type="button" disabled={!hasNextPage || isFetchingNextPage} onClick={loadNextPage}>{isFetchingNextPage ? '加载中…' : hasNextPage ? '加载更多' : '已加载全部'}</button></div>
       </section>
       <section className="mail-column">
         <div className="column-title mail-list-toolbar">

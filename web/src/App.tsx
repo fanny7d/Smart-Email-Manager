@@ -266,7 +266,7 @@ function AuthenticatedApp() {
       {error && <div className="error-banner">{error.message}</div>}
       {activeJob.data && <section className="job-banner" aria-live="polite"><div><strong>健康检查任务</strong><span>{activeJob.data.status}</span></div><div>{activeJob.data.succeeded_count}/{activeJob.data.total_count} 完成</div></section>}
       {view === 'fleet' && <FleetView summary={summary} accounts={accountItems} healthFilter={healthFilter} setHealthFilter={setHealthFilter} accountViews={accountViews.data} smartView={smartView} setSmartView={setSmartView} isLoading={summary.isLoading || accounts.isLoading} hasNextPage={Boolean(accounts.hasNextPage)} isFetchingNextPage={accounts.isFetchingNextPage} loadNextPage={() => void accounts.fetchNextPage()} />}
-      {view === 'mail' && <MailView accounts={accountItems} />}
+      {view === 'mail' && <MailView accounts={accountItems} hasNextPage={Boolean(accounts.hasNextPage)} isFetchingNextPage={accounts.isFetchingNextPage} loadNextPage={() => void accounts.fetchNextPage()} />}
       {view === 'organization' && <OrganizationView accounts={accountItems} />}
       {view === 'imports' && <ImportsView />}
       {view === 'automation' && <AutomationView />}
