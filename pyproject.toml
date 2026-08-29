@@ -56,7 +56,7 @@ Repository = "https://github.com/fanny7d/Smart-Email-Manager.git"
 
 [dependency-groups]
 dev = [
-  "mypy>=1.17,<2",
+  "mypy>=1.17,<3",
   "pytest>=9.0.3,<10",
   "pytest-asyncio>=1.1,<2",
   "pytest-cov>=6.2,<7",
