@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import time
 import uuid
 from typing import Any
@@ -117,7 +118,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the 10,000-account PostgreSQL scale gate")
     parser.add_argument(
         "--database-url",
-        default="postgresql+psycopg:///smart_email_manager_test",
+        default=(
+            os.getenv("SEM_TEST_DATABASE_URL")
+            or os.getenv("SEM_DATABASE_URL")
+            or "postgresql+psycopg:///smart_email_manager_test"
+        ),
     )
     parser.add_argument("--accounts", type=int, default=10_000)
     args = parser.parse_args()

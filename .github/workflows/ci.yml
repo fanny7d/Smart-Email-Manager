@@ -121,7 +121,7 @@ jobs:
 
       - name: Verify 10,000-account scale boundary
         if: matrix.python-version == '3.14'
-        run: uv run python scripts/benchmark_scale.py --accounts 10000
+        run: uv run python scripts/benchmark_scale.py --database-url "$SEM_DATABASE_URL" --accounts 10000
 
   dependency-audit:
     runs-on: ubuntu-latest
