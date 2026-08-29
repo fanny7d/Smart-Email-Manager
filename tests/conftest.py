@@ -11,7 +11,7 @@ from sqlalchemy import text
 os.environ["SEM_ENVIRONMENT"] = "test"
 os.environ["SEM_DATABASE_URL"] = os.getenv(
     "SEM_TEST_DATABASE_URL",
-    "postgresql+psycopg:///smart_email_manager_test",
+    os.getenv("SEM_DATABASE_URL", "postgresql+psycopg:///smart_email_manager_test"),
 )
 os.environ["SEM_API_TOKEN"] = ""
 os.environ["SEM_MASTER_KEY"] = base64.urlsafe_b64encode(b"test-master-key-material-32-byte").decode()
