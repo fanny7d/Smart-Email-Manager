@@ -25,6 +25,7 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - Initial public beta baseline.
+- Verified wheel and source distributions with published SHA-256 checksums.
 
 [Unreleased]: https://github.com/fanny7d/Smart-Email-Manager/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/fanny7d/Smart-Email-Manager/releases/tag/v0.1.0
