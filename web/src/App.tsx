@@ -4,7 +4,6 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { api, setApiToken, type Account, type AccountViews, type FleetSummary, type StatusCount } from './api/client'
 import {
   AutomationView,
-  CodesView,
   ImportsView,
   JobsView,
   MailView,
@@ -15,8 +14,17 @@ import {
 } from './Views'
 import './styles.css'
 
-type View = 'fleet' | 'mail' | 'codes' | 'organization' | 'imports' | 'automation' | 'projects' | 'settings' | 'jobs'
+type View = 'fleet' | 'mail' | 'organization' | 'imports' | 'automation' | 'projects' | 'settings' | 'jobs'
 const terminalJobStates = new Set(['completed', 'partial', 'failed', 'cancelled'])
+const managementViews: [View, string, string][] = [
+  ['fleet', '账号总览', '健康、筛选与批量管理'],
+  ['organization', '分组与标签', '整理邮箱资产'],
+  ['imports', '批量导入', '添加 Outlook 邮箱'],
+  ['automation', '自动化', '刷新与定时计划'],
+  ['projects', '项目租约', '自动化账号工作池'],
+  ['settings', '系统设置', '代理、分享与令牌'],
+  ['jobs', '任务记录', '查看后台任务进度'],
+]
 
 function countFor(items: StatusCount[] | undefined, status: string): number {
   return items?.find((item) => item.status === status)?.count ?? 0
@@ -163,14 +171,15 @@ function FleetView({
 
 function AuthenticatedApp() {
   const queryClient = useQueryClient()
-  const [view, setView] = useState<View>('fleet')
+  const [view, setView] = useState<View>('mail')
   const [healthFilter, setHealthFilter] = useState('')
   const [smartView, setSmartView] = useState('')
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [tokenInput, setTokenInput] = useState('')
+  const [managementOpen, setManagementOpen] = useState(false)
 
-  const summary = useQuery({ queryKey: ['fleet-summary'], queryFn: api.fleetSummary, refetchInterval: 10_000 })
-  const accountViews = useQuery({ queryKey: ['account-views'], queryFn: api.accountViews })
+  const summary = useQuery({ queryKey: ['fleet-summary'], queryFn: api.fleetSummary, refetchInterval: 10_000, enabled: view === 'fleet' })
+  const accountViews = useQuery({ queryKey: ['account-views'], queryFn: api.accountViews, enabled: view === 'fleet' })
   const builtinView = smartView.startsWith('builtin:') ? smartView.slice(8) : undefined
   const savedViewId = smartView.startsWith('saved:') ? smartView.slice(6) : undefined
   const accounts = useInfiniteQuery({
@@ -195,31 +204,69 @@ function AuthenticatedApp() {
     }
   }, [activeJob.data, queryClient])
 
+  useEffect(() => {
+    if (!managementOpen) return
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      const target = event.target as Element | null
+      if (!target?.closest('.management-menu')) setManagementOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setManagementOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [managementOpen])
+
   const saveToken = () => {
     setApiToken(tokenInput)
     void queryClient.invalidateQueries()
   }
-  const error = summary.error ?? accounts.error ?? accountViews.error
+  const error = accounts.error ?? (view === 'fleet' ? summary.error ?? accountViews.error : null)
   const accountItems = accounts.data?.pages.flatMap((page) => page.items) ?? []
+  const navigate = (nextView: View) => {
+    if (nextView === 'mail') {
+      setHealthFilter('')
+      setSmartView('')
+    }
+    setView(nextView)
+    setManagementOpen(false)
+  }
+  const managementActive = managementViews.some(([value]) => value === view)
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div><div className="eyebrow">MAILBOX FLEET</div><h1>Smart Email Manager</h1></div>
-        <div className="topbar-actions">
-          <input aria-label="API Token" type="password" value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} placeholder="API Token（仅当前标签页）" />
-          <button type="button" onClick={saveToken}>应用 Token</button>
-          <button className="primary-button" type="button" disabled={checkHealth.isPending || !accountItems.length} onClick={() => checkHealth.mutate()}>{checkHealth.isPending ? '正在创建任务…' : `检查已加载账号（${accountItems.length}）`}</button>
+      <header className="simple-topbar">
+        <button className="brand-button" type="button" onClick={() => navigate('mail')}>Smart Email Manager</button>
+        <nav className="primary-nav" aria-label="主要功能">
+          <button type="button" className={view === 'mail' ? 'primary-nav-active' : ''} aria-current={view === 'mail' ? 'page' : undefined} onClick={() => navigate('mail')}>邮箱</button>
+        </nav>
+        <div className="management-menu">
+          <button className={managementActive || managementOpen ? 'management-trigger management-trigger-active' : 'management-trigger'} type="button" aria-expanded={managementOpen} aria-controls="management-popover" onClick={() => setManagementOpen((open) => !open)}>管理</button>
+          {managementOpen && <div className="management-popover" id="management-popover">
+            <div className="management-links">
+              {managementViews.map(([value, label, description]) => <button className={view === value ? 'management-link-active' : ''} type="button" onClick={() => navigate(value)} key={value}><strong>{label}</strong><span>{description}</span></button>)}
+            </div>
+            <div className="management-actions">
+              <button type="button" disabled={checkHealth.isPending || !accountItems.length} onClick={() => checkHealth.mutate()}>{checkHealth.isPending ? '正在创建检查任务…' : `检查已加载账号（${accountItems.length}）`}</button>
+              <details>
+                <summary>临时 API Token</summary>
+                <div className="token-inline-form">
+                  <input aria-label="API Token" type="password" value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} placeholder="仅保存在当前标签页" />
+                  <button type="button" onClick={saveToken}>应用</button>
+                </div>
+              </details>
+            </div>
+          </div>}
         </div>
       </header>
-      <nav className="main-nav" aria-label="主要功能">
-        {([['fleet', '健康总览'], ['mail', '邮件'], ['codes', '验证码'], ['organization', '分组与标签'], ['imports', '导入'], ['automation', '自动化'], ['projects', '项目租约'], ['settings', '设置'], ['jobs', '任务']] as [View, string][]).map(([value, label]) => <button type="button" className={view === value ? 'nav-active' : ''} onClick={() => setView(value)} key={value}>{label}</button>)}
-      </nav>
       {error && <div className="error-banner">{error.message}</div>}
       {activeJob.data && <section className="job-banner" aria-live="polite"><div><strong>健康检查任务</strong><span>{activeJob.data.status}</span></div><div>{activeJob.data.succeeded_count}/{activeJob.data.total_count} 完成</div></section>}
       {view === 'fleet' && <FleetView summary={summary} accounts={accountItems} healthFilter={healthFilter} setHealthFilter={setHealthFilter} accountViews={accountViews.data} smartView={smartView} setSmartView={setSmartView} isLoading={summary.isLoading || accounts.isLoading} hasNextPage={Boolean(accounts.hasNextPage)} isFetchingNextPage={accounts.isFetchingNextPage} loadNextPage={() => void accounts.fetchNextPage()} />}
-      {view === 'mail' && <MailView accounts={accountItems} />}
-      {view === 'codes' && <CodesView accounts={accountItems} />}
+      {view === 'mail' && <MailView accounts={accountItems} hasNextPage={Boolean(accounts.hasNextPage)} isFetchingNextPage={accounts.isFetchingNextPage} loadNextPage={() => void accounts.fetchNextPage()} />}
       {view === 'organization' && <OrganizationView accounts={accountItems} />}
       {view === 'imports' && <ImportsView />}
       {view === 'automation' && <AutomationView />}

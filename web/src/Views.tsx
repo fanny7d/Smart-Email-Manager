@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, type Account, type ImportBatch, type MailAttachment } from './api/client'
+import { resolveMailboxSelection } from './mailboxSelection'
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <div className="empty-state">{children}</div>
@@ -421,16 +422,38 @@ export function SettingsView({ accounts }: { accounts: Account[] }) {
 }
 
 
-export function MailView({ accounts }: { accounts: Account[] }) {
+export function MailView({
+  accounts,
+  hasNextPage,
+  isFetchingNextPage,
+  loadNextPage,
+}: {
+  accounts: Account[]
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  loadNextPage: () => void
+}) {
   const queryClient = useQueryClient()
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? '')
+  const [accountQuery, setAccountQuery] = useState('')
+  const [groupId, setGroupId] = useState('')
   const [messageId, setMessageId] = useState('')
   const [messageFolder, setMessageFolder] = useState('')
   const [folder, setFolder] = useState<'inbox' | 'junkemail' | 'deleteditems' | 'all'>('inbox')
-  useEffect(() => {
-    if (!accountId && accounts[0]) setAccountId(accounts[0].id)
-  }, [accountId, accounts])
+  const [recentMinutes, setRecentMinutes] = useState(30)
+  const [copiedCode, setCopiedCode] = useState('')
+  const groups = useQuery({ queryKey: ['groups'], queryFn: api.groups })
   const mail = useQuery({ queryKey: ['mail', accountId, folder], queryFn: () => api.mail(accountId, folder), enabled: Boolean(accountId), retry: false })
+  const codes = useMutation({ mutationFn: () => api.verificationCodes(accountId, recentMinutes) })
+  useEffect(() => {
+    const replacementId = resolveMailboxSelection(accounts, accountId, groupId)
+    if (replacementId === accountId) return
+    setAccountId(replacementId)
+    setMessageId('')
+    setMessageFolder('')
+    setCopiedCode('')
+    codes.reset()
+  }, [accountId, accounts, groupId])
   const detailFolder = messageFolder || (folder === 'all' ? 'inbox' : folder)
   const detail = useQuery({ queryKey: ['mail-detail', accountId, detailFolder, messageId], queryFn: () => api.mailDetail(accountId, messageId, detailFolder), enabled: Boolean(accountId && messageId), retry: false })
   useEffect(() => {
@@ -459,13 +482,51 @@ export function MailView({ accounts }: { accounts: Account[] }) {
     if (account.id === accountId && mail.data) return `已连接 · ${mail.data.method.toUpperCase()}`
     return ({ healthy: '健康', degraded: '降级', failed: '失败', unknown: '未检查' } as Record<string, string>)[account.mail_health_status] ?? account.mail_health_status
   }
+  const selectedAccount = accounts.find((account) => account.id === accountId)
+  const visibleAccounts = accounts.filter((account) => {
+    const matchesQuery = account.email.toLocaleLowerCase().includes(accountQuery.trim().toLocaleLowerCase())
+    return matchesQuery && (!groupId || account.group_id === groupId)
+  })
+  const latestCode = codes.data?.items[0]
+  const codesByMessage = new Map(codes.data?.items.map((item) => [`${item.folder}:${item.message_id}`, item.code]) ?? [])
+
+  const chooseAccount = (nextAccountId: string) => {
+    setAccountId(nextAccountId)
+    setMessageId('')
+    setMessageFolder('')
+    setCopiedCode('')
+    codes.reset()
+  }
+  const chooseGroup = (nextGroupId: string) => {
+    setGroupId(nextGroupId)
+    const nextAccountId = resolveMailboxSelection(accounts, accountId, nextGroupId)
+    if (nextAccountId !== accountId) chooseAccount(nextAccountId)
+  }
+  const copyCode = async (code: string) => {
+    await navigator.clipboard.writeText(code)
+    setCopiedCode(code)
+  }
+  const viewCodeSource = () => {
+    if (!latestCode) return
+    const sourceFolder = latestCode.folder === 'junkemail' ? 'junkemail' : 'inbox'
+    setFolder(sourceFolder)
+    setMessageId(latestCode.message_id)
+    setMessageFolder(sourceFolder)
+  }
 
   return (
     <main className="mail-workspace">
-      <section className="mail-column account-column"><div className="column-title">邮箱账号</div>{accounts.map((account) => <button className={account.id === accountId ? 'selected-row' : ''} type="button" onClick={() => { setAccountId(account.id); setMessageId(''); setMessageFolder('') }} key={account.id}><strong>{account.email}</strong><span>{healthLabel(account)}</span></button>)}</section>
+      <section className="mail-column account-column" aria-label="邮箱列表">
+        <div className="mail-account-tools">
+          <input aria-label="搜索邮箱" type="search" value={accountQuery} onChange={(event) => setAccountQuery(event.target.value)} placeholder="搜索邮箱" />
+          <select aria-label="邮箱分组" value={groupId} onChange={(event) => chooseGroup(event.target.value)}><option value="">全部邮箱</option>{groups.data?.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select>
+        </div>
+        <div className="mail-account-list">{visibleAccounts.map((account) => <button className={account.id === accountId ? 'selected-row' : ''} type="button" onClick={() => chooseAccount(account.id)} key={account.id}><span className={`health-dot health-${account.mail_health_status}`} aria-hidden="true" /><span><strong>{account.email}</strong><small>{healthLabel(account)}</small></span></button>)}{!visibleAccounts.length && <Empty>没有匹配的邮箱</Empty>}</div>
+        <div className="mail-account-footer"><span>已加载 {accounts.length} 个邮箱</span><button type="button" disabled={!hasNextPage || isFetchingNextPage} onClick={loadNextPage}>{isFetchingNextPage ? '加载中…' : hasNextPage ? '加载更多' : '已加载全部'}</button></div>
+      </section>
       <section className="mail-column">
         <div className="column-title mail-list-toolbar">
-          <span>邮件列表</span>
+          <span>邮件</span>
           <select aria-label="邮件文件夹" value={folder} onChange={(event) => { setFolder(event.target.value as typeof folder); setMessageId(''); setMessageFolder('') }}>
             <option value="inbox">收件箱</option>
             <option value="junkemail">垃圾邮件</option>
@@ -474,47 +535,14 @@ export function MailView({ accounts }: { accounts: Account[] }) {
           </select>
           <button type="button" disabled={mail.isFetching} onClick={() => void mail.refetch()}>{mail.isFetching ? '读取中' : '刷新'}</button>
         </div>
-        {mail.error ? <div className="mail-query-state mail-query-error" role="alert"><strong>读取失败</strong><span>{mail.error.message}</span></div> : mail.data?.items.length ? mail.data.items.map((message) => <button className={message.id === messageId && message.folder === messageFolder ? 'selected-row' : ''} type="button" onClick={() => { setMessageId(message.id); setMessageFolder(message.folder) }} key={`${message.folder}:${message.id}`}><strong>{message.subject || '无主题'}</strong><span>{message.sender}</span><small>{message.body_preview}</small></button>) : mail.isLoading ? <Empty>正在连接邮箱…</Empty> : mail.data ? <div className="mail-query-state" aria-live="polite"><strong>{mail.data.method.toUpperCase()} 已连接</strong><span>邮件服务器返回 0 封，此文件夹目前为空。</span></div> : <Empty>请选择邮箱账号</Empty>}
+        {selectedAccount && <section className="mail-code-panel" aria-label="验证码工具">
+          <div className="mail-code-result"><span>最新验证码</span>{codes.isPending ? <strong className="mail-code-muted" aria-live="polite">正在读取…</strong> : latestCode ? <strong>{latestCode.code}</strong> : <strong className="mail-code-muted">{codes.data ? '未找到' : '尚未查询'}</strong>}{latestCode && <small>{latestCode.sender} · {new Date(latestCode.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>}</div>
+          <div className="mail-code-actions"><button className="mail-code-primary" type="button" disabled={codes.isPending} onClick={() => codes.mutate()}>{codes.isPending ? '正在获取…' : '获取验证码'}</button>{latestCode && <button type="button" onClick={() => void copyCode(latestCode.code)}>{copiedCode === latestCode.code ? '已复制' : '复制'}</button>}{latestCode && <button type="button" onClick={viewCodeSource}>查看邮件</button>}<details><summary>查询设置</summary><label>时间范围<select value={recentMinutes} onChange={(event) => { setRecentMinutes(Number(event.target.value)); codes.reset() }}><option value={10}>10 分钟</option><option value={30}>30 分钟</option><option value={60}>1 小时</option><option value={360}>6 小时</option><option value={1440}>24 小时</option></select></label></details></div>
+          {codes.error && <div className="mail-code-error" role="alert">{codes.error.message}</div>}
+        </section>}
+        {mail.error ? <div className="mail-query-state mail-query-error" role="alert"><strong>读取失败</strong><span>{mail.error.message}</span></div> : mail.data?.items.length ? mail.data.items.map((message) => { const codeKey = `${message.folder}:${message.id}`; return <button className={message.id === messageId && message.folder === messageFolder ? 'selected-row' : ''} type="button" onClick={() => { setMessageId(message.id); setMessageFolder(message.folder) }} key={codeKey}><strong>{message.subject || '无主题'}</strong><span>{message.sender}{codesByMessage.has(codeKey) && <b className="detected-code">验证码 {codesByMessage.get(codeKey)}</b>}</span><small>{message.body_preview}</small></button> }) : mail.isLoading ? <Empty>正在连接邮箱…</Empty> : mail.data ? <div className="mail-query-state" aria-live="polite"><strong>{mail.data.method.toUpperCase()} 已连接</strong><span>邮件服务器返回 0 封，此文件夹目前为空。</span></div> : <Empty>请选择邮箱账号</Empty>}
       </section>
       <section className="mail-detail"><div className="column-title">邮件详情</div>{detail.error ? <div className="mail-query-state mail-query-error" role="alert"><strong>详情读取失败</strong><span>{detail.error.message}</span></div> : detail.data ? <article><div className="mail-detail-heading"><div><h2>{detail.data.subject || '无主题'}</h2><p>{detail.data.sender} · {detail.data.received_at}</p></div><div className="mail-actions"><button type="button" disabled={detail.data.is_read || markRead.isPending} onClick={() => markRead.mutate()}>{detail.data.is_read ? '已读' : '标记已读'}</button><button type="button" disabled={raw.isPending} onClick={() => raw.mutate()}>下载原始 MIME</button><button className="danger-button" type="button" disabled={remove.isPending} onClick={() => { if (window.confirm('删除这封邮件？此操作会同步到远端邮箱。')) remove.mutate() }}>删除</button></div></div>{(markRead.error ?? remove.error ?? raw.error ?? attachment.error) && <div className="inline-error">{(markRead.error ?? remove.error ?? raw.error ?? attachment.error)?.message}</div>}<div className="recipient-line">收件人：{detail.data.recipients.join(', ') || '—'}{detail.data.cc.length ? ` · 抄送：${detail.data.cc.join(', ')}` : ''}</div>{detail.data.attachments.length > 0 && <div className="attachment-list"><strong>附件</strong>{detail.data.attachments.map((item) => <button type="button" disabled={attachment.isPending} onClick={() => attachment.mutate(item)} key={item.id}>{item.name} · {Math.ceil(item.size / 1024)} KB</button>)}</div>}<pre>{detail.data.body}</pre></article> : <Empty>{detail.isLoading ? '正在加载详情…' : '选择一封邮件查看详情'}</Empty>}</section>
-    </main>
-  )
-}
-
-
-export function CodesView({ accounts }: { accounts: Account[] }) {
-  const [accountId, setAccountId] = useState('')
-  const [recentMinutes, setRecentMinutes] = useState(30)
-  const codes = useMutation({
-    mutationFn: () => accountId
-      ? api.verificationCodes(accountId, recentMinutes)
-      : api.queryVerificationCodes([], recentMinutes, 100),
-  })
-
-  return (
-    <main className="codes-workspace">
-      <section className="workspace-card codes-toolbar">
-        <div className="panel-header"><div><div className="eyebrow">OUTLOOK VERIFICATION CODES</div><h2>验证码中心</h2></div></div>
-        <div className="codes-controls">
-          <label>查询范围<select value={accountId} onChange={(event) => setAccountId(event.target.value)}><option value="">全部启用邮箱（最多 100 个）</option>{accounts.map((account) => <option value={account.id} key={account.id}>{account.email}</option>)}</select></label>
-          <label>最近时间<select value={recentMinutes} onChange={(event) => setRecentMinutes(Number(event.target.value))}><option value={10}>10 分钟</option><option value={30}>30 分钟</option><option value={60}>1 小时</option><option value={360}>6 小时</option><option value={1440}>24 小时</option></select></label>
-          <button type="button" disabled={codes.isPending} onClick={() => codes.mutate()}>{codes.isPending ? '正在查询…' : '获取验证码'}</button>
-        </div>
-        <p className="muted-copy">只读查询收件箱和垃圾邮件，不会自动标记已读或删除邮件。</p>
-      </section>
-      {codes.error && <div className="inline-error">{codes.error.message}</div>}
-      {codes.data && <div className="codes-summary">已检查 {codes.data.checked_accounts} 个邮箱 · 找到 {codes.data.items.length} 个验证码{codes.data.failed_accounts ? ` · ${codes.data.failed_accounts} 个失败` : ''}</div>}
-      <section className="codes-grid">
-        {codes.data?.items.map((item) => <article className="workspace-card code-card" key={`${item.account_id}:${item.folder}:${item.message_id}:${item.code}`}>
-          <div className="code-value">{item.code}</div>
-          <button type="button" onClick={() => void navigator.clipboard.writeText(item.code)}>复制验证码</button>
-          <strong>{item.email}</strong>
-          <span>{item.subject || '无主题'}</span>
-          <small>{item.sender} · {new Date(item.received_at).toLocaleString()}</small>
-          <small>{item.folder === 'junkemail' ? '垃圾邮件' : '收件箱'} · {item.method.toUpperCase()} · {item.confidence === 'high' ? '高置信度' : '中置信度'}</small>
-        </article>)}
-        {codes.data && !codes.data.items.length && <Empty>最近时间范围内没有识别到验证码邮件。</Empty>}
-      </section>
     </main>
   )
 }
