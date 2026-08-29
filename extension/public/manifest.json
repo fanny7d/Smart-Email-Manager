@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Smart Email Manager",
+  "version": "0.1.0",
+  "description": "API-first mailbox fleet status and quick actions.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Smart Email Manager"
+  },
+  "permissions": ["storage"],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ]
+}

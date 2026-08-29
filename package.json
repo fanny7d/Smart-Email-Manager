@@ -1,0 +1,16 @@
+{
+  "name": "smart-email-manager-workspace",
+  "private": true,
+  "packageManager": "pnpm@11.22.0",
+  "scripts": {
+    "web:dev": "pnpm --dir web dev",
+    "web:build": "pnpm --dir web build",
+    "web:test": "pnpm --dir web test",
+    "web:generate-api": "pnpm --dir web generate:api",
+    "extension:build": "pnpm --dir extension build",
+    "lint:markdown": "markdownlint-cli2 'README.md' '*.md' 'docs/**/*.md' '.github/**/*.md'"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "^0.23.2"
+  }
+}

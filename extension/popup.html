@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Smart Email Manager</title>
+    <link rel="stylesheet" href="/src/popup.css" />
+  </head>
+  <body>
+    <header>
+      <span>MAILBOX FLEET</span>
+      <h1>Smart Email Manager</h1>
+    </header>
+    <section class="settings">
+      <label>API URL<input id="api-url" value="http://127.0.0.1:8000" /></label>
+      <label>API Token<input id="api-token" type="password" placeholder="仅保存到浏览器会话" /></label>
+      <button id="connect" type="button">连接并刷新</button>
+      <p id="error" role="alert"></p>
+    </section>
+    <section id="summary" class="summary" hidden>
+      <div><span>总账号</span><strong id="total">—</strong></div>
+      <div><span>需要处理</span><strong id="attention">—</strong></div>
+    </section>
+    <section>
+      <div class="section-title">最近账号</div>
+      <div id="accounts" class="accounts"><p>连接 API 后加载。</p></div>
+    </section>
+    <script type="module" src="/src/popup.ts"></script>
+  </body>
+</html>

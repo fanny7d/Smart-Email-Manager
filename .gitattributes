@@ -1,0 +1,11 @@
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.jpg binary
+*.png binary
+*.woff2 binary
+
+contracts/openapi.json linguist-generated=true
+web/src/api/generated/** linguist-generated=true
+pnpm-lock.yaml linguist-generated=true
+uv.lock linguist-generated=true

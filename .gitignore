@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+site/
+.venv/
+dist/
+build/
+*.egg-info/
+*.sqlite
+*.sqlite3
+
+# Node
+node_modules/
+web/node_modules/
+web/dist/
+extension/dist/
+web/.vite/
+*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.production.example
+.envrc
+sem.toml
+token
+*.pem
+*.key
+
+# Local runtime
+.DS_Store
+*.log
+.tmp/
+.test_tmp/
+.playwright-cli/
+
+# Editors
+.idea/
+.vscode/
+*.swp

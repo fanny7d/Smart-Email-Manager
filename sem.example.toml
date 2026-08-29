@@ -1,0 +1,7 @@
+[client]
+api_url = "http://127.0.0.1:8000"
+token_file = "token"
+timeout_seconds = 60
+
+# For a private HTTPS CA, point to a PEM bundle. Do not disable TLS verification.
+# ca_bundle = "/path/to/company-ca.pem"

@@ -1,0 +1,130 @@
+name: smart-email-manager
+
+x-python-environment: &python-environment
+  SEM_ENVIRONMENT: production
+  SEM_LOG_LEVEL: ${SEM_LOG_LEVEL:-INFO}
+  SEM_API_HOST: 0.0.0.0
+  SEM_API_PORT: 8000
+  SEM_API_TOKEN: ${SEM_API_TOKEN:-}
+  SEM_API_TOKEN_FILE: ${SEM_API_TOKEN_FILE:-}
+  SEM_MASTER_KEY: ${SEM_MASTER_KEY:-}
+  SEM_MASTER_KEY_FILE: ${SEM_MASTER_KEY_FILE:-}
+  SEM_MASTER_KEY_VERSION: ${SEM_MASTER_KEY_VERSION:-1}
+  SEM_CORS_ORIGINS: '["${SEM_PUBLIC_ORIGIN:-http://localhost:8080}"]'
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: smart_email_manager
+      POSTGRES_USER: sem_bootstrap
+      POSTGRES_PASSWORD: ${SEM_BOOTSTRAP_DB_PASSWORD:?set SEM_BOOTSTRAP_DB_PASSWORD}
+      SEM_MIGRATOR_DB_PASSWORD: ${SEM_MIGRATOR_DB_PASSWORD:?set SEM_MIGRATOR_DB_PASSWORD}
+      SEM_APP_DB_PASSWORD: ${SEM_APP_DB_PASSWORD:?set SEM_APP_DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./deploy/postgres/init-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sem_bootstrap -d smart_email_manager"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  migrate:
+    image: ${SEM_API_IMAGE:-smart-email-manager-api:latest}
+    build:
+      context: .
+      target: runtime
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *python-environment
+      SEM_DATABASE_URL: postgresql+psycopg://sem_migrator:${SEM_MIGRATOR_DB_PASSWORD}@db:5432/smart_email_manager
+      SEM_DATABASE_URL_FILE: ${SEM_MIGRATOR_DATABASE_URL_FILE:-}
+    command: ["sem-migrate"]
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  api:
+    image: ${SEM_API_IMAGE:-smart-email-manager-api:latest}
+    build:
+      context: .
+      target: runtime
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *python-environment
+      SEM_DATABASE_URL: postgresql+psycopg://sem_app:${SEM_APP_DB_PASSWORD}@db:5432/smart_email_manager
+      SEM_DATABASE_URL_FILE: ${SEM_APP_DATABASE_URL_FILE:-}
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/system/health', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  worker:
+    image: ${SEM_API_IMAGE:-smart-email-manager-api:latest}
+    build:
+      context: .
+      target: runtime
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *python-environment
+      SEM_DATABASE_URL: postgresql+psycopg://sem_app:${SEM_APP_DB_PASSWORD}@db:5432/smart_email_manager
+      SEM_DATABASE_URL_FILE: ${SEM_APP_DATABASE_URL_FILE:-}
+      SEM_WORKER_ID: ${SEM_WORKER_ID:-compose-worker-1}
+      SEM_WORKER_POLL_SECONDS: ${SEM_WORKER_POLL_SECONDS:-2}
+      SEM_JOB_LEASE_SECONDS: ${SEM_JOB_LEASE_SECONDS:-60}
+    command: ["sem-worker"]
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    image: ${SEM_WEB_IMAGE:-smart-email-manager-web:latest}
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${SEM_WEB_BIND:-127.0.0.1:8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  postgres-data:
