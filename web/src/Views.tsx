@@ -424,13 +424,19 @@ export function SettingsView({ accounts }: { accounts: Account[] }) {
 export function MailView({ accounts }: { accounts: Account[] }) {
   const queryClient = useQueryClient()
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? '')
+  const [accountQuery, setAccountQuery] = useState('')
+  const [groupId, setGroupId] = useState('')
   const [messageId, setMessageId] = useState('')
   const [messageFolder, setMessageFolder] = useState('')
   const [folder, setFolder] = useState<'inbox' | 'junkemail' | 'deleteditems' | 'all'>('inbox')
+  const [recentMinutes, setRecentMinutes] = useState(30)
+  const [copiedCode, setCopiedCode] = useState('')
   useEffect(() => {
-    if (!accountId && accounts[0]) setAccountId(accounts[0].id)
+    if (accounts.length && !accounts.some((account) => account.id === accountId)) setAccountId(accounts[0].id)
   }, [accountId, accounts])
+  const groups = useQuery({ queryKey: ['groups'], queryFn: api.groups })
   const mail = useQuery({ queryKey: ['mail', accountId, folder], queryFn: () => api.mail(accountId, folder), enabled: Boolean(accountId), retry: false })
+  const codes = useMutation({ mutationFn: () => api.verificationCodes(accountId, recentMinutes) })
   const detailFolder = messageFolder || (folder === 'all' ? 'inbox' : folder)
   const detail = useQuery({ queryKey: ['mail-detail', accountId, detailFolder, messageId], queryFn: () => api.mailDetail(accountId, messageId, detailFolder), enabled: Boolean(accountId && messageId), retry: false })
   useEffect(() => {
@@ -459,56 +465,18 @@ export function MailView({ accounts }: { accounts: Account[] }) {
     if (account.id === accountId && mail.data) return `已连接 · ${mail.data.method.toUpperCase()}`
     return ({ healthy: '健康', degraded: '降级', failed: '失败', unknown: '未检查' } as Record<string, string>)[account.mail_health_status] ?? account.mail_health_status
   }
-
-  return (
-    <main className="mail-workspace">
-      <section className="mail-column account-column"><div className="column-title">邮箱账号</div>{accounts.map((account) => <button className={account.id === accountId ? 'selected-row' : ''} type="button" onClick={() => { setAccountId(account.id); setMessageId(''); setMessageFolder('') }} key={account.id}><strong>{account.email}</strong><span>{healthLabel(account)}</span></button>)}</section>
-      <section className="mail-column">
-        <div className="column-title mail-list-toolbar">
-          <span>邮件列表</span>
-          <select aria-label="邮件文件夹" value={folder} onChange={(event) => { setFolder(event.target.value as typeof folder); setMessageId(''); setMessageFolder('') }}>
-            <option value="inbox">收件箱</option>
-            <option value="junkemail">垃圾邮件</option>
-            <option value="deleteditems">已删除</option>
-            <option value="all">收件箱 + 垃圾邮件</option>
-          </select>
-          <button type="button" disabled={mail.isFetching} onClick={() => void mail.refetch()}>{mail.isFetching ? '读取中' : '刷新'}</button>
-        </div>
-        {mail.error ? <div className="mail-query-state mail-query-error" role="alert"><strong>读取失败</strong><span>{mail.error.message}</span></div> : mail.data?.items.length ? mail.data.items.map((message) => <button className={message.id === messageId && message.folder === messageFolder ? 'selected-row' : ''} type="button" onClick={() => { setMessageId(message.id); setMessageFolder(message.folder) }} key={`${message.folder}:${message.id}`}><strong>{message.subject || '无主题'}</strong><span>{message.sender}</span><small>{message.body_preview}</small></button>) : mail.isLoading ? <Empty>正在连接邮箱…</Empty> : mail.data ? <div className="mail-query-state" aria-live="polite"><strong>{mail.data.method.toUpperCase()} 已连接</strong><span>邮件服务器返回 0 封，此文件夹目前为空。</span></div> : <Empty>请选择邮箱账号</Empty>}
-      </section>
-      <section className="mail-detail"><div className="column-title">邮件详情</div>{detail.error ? <div className="mail-query-state mail-query-error" role="alert"><strong>详情读取失败</strong><span>{detail.error.message}</span></div> : detail.data ? <article><div className="mail-detail-heading"><div><h2>{detail.data.subject || '无主题'}</h2><p>{detail.data.sender} · {detail.data.received_at}</p></div><div className="mail-actions"><button type="button" disabled={detail.data.is_read || markRead.isPending} onClick={() => markRead.mutate()}>{detail.data.is_read ? '已读' : '标记已读'}</button><button type="button" disabled={raw.isPending} onClick={() => raw.mutate()}>下载原始 MIME</button><button className="danger-button" type="button" disabled={remove.isPending} onClick={() => { if (window.confirm('删除这封邮件？此操作会同步到远端邮箱。')) remove.mutate() }}>删除</button></div></div>{(markRead.error ?? remove.error ?? raw.error ?? attachment.error) && <div className="inline-error">{(markRead.error ?? remove.error ?? raw.error ?? attachment.error)?.message}</div>}<div className="recipient-line">收件人：{detail.data.recipients.join(', ') || '—'}{detail.data.cc.length ? ` · 抄送：${detail.data.cc.join(', ')}` : ''}</div>{detail.data.attachments.length > 0 && <div className="attachment-list"><strong>附件</strong>{detail.data.attachments.map((item) => <button type="button" disabled={attachment.isPending} onClick={() => attachment.mutate(item)} key={item.id}>{item.name} · {Math.ceil(item.size / 1024)} KB</button>)}</div>}<pre>{detail.data.body}</pre></article> : <Empty>{detail.isLoading ? '正在加载详情…' : '选择一封邮件查看详情'}</Empty>}</section>
-    </main>
-  )
-}
-
-
-export function CodesView({ accounts }: { accounts: Account[] }) {
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? '')
-  const [query, setQuery] = useState('')
-  const [groupId, setGroupId] = useState('')
-  const [recentMinutes, setRecentMinutes] = useState(30)
-  const [copiedCode, setCopiedCode] = useState('')
-  const groups = useQuery({ queryKey: ['groups'], queryFn: api.groups })
-  const codes = useMutation({
-    mutationFn: () => api.verificationCodes(accountId, recentMinutes),
-  })
-  useEffect(() => {
-    if (accounts.length && !accounts.some((account) => account.id === accountId)) setAccountId(accounts[0].id)
-  }, [accountId, accounts])
-
   const selectedAccount = accounts.find((account) => account.id === accountId)
   const visibleAccounts = accounts.filter((account) => {
-    const matchesQuery = account.email.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
+    const matchesQuery = account.email.toLocaleLowerCase().includes(accountQuery.trim().toLocaleLowerCase())
     return matchesQuery && (!groupId || account.group_id === groupId)
   })
-  const recentCodes = codes.data?.items.slice(0, 3) ?? []
-  const latestCode = recentCodes[0]
-  const healthLabels: Record<string, string> = { healthy: '正常', degraded: '需留意', failed: '连接失败', unknown: '尚未检查' }
-  const healthText = selectedAccount ? healthLabels[selectedAccount.mail_health_status] ?? selectedAccount.mail_health_status : '未选择'
-  const lastSuccess = selectedAccount?.last_mail_success_at ? new Date(selectedAccount.last_mail_success_at).toLocaleString() : '暂无成功记录'
+  const latestCode = codes.data?.items[0]
+  const codesByMessage = new Map(codes.data?.items.map((item) => [`${item.folder}:${item.message_id}`, item.code]) ?? [])
 
   const chooseAccount = (nextAccountId: string) => {
     setAccountId(nextAccountId)
+    setMessageId('')
+    setMessageFolder('')
     setCopiedCode('')
     codes.reset()
   }
@@ -521,71 +489,43 @@ export function CodesView({ accounts }: { accounts: Account[] }) {
     await navigator.clipboard.writeText(code)
     setCopiedCode(code)
   }
+  const viewCodeSource = () => {
+    if (!latestCode) return
+    const sourceFolder = latestCode.folder === 'junkemail' ? 'junkemail' : 'inbox'
+    setFolder(sourceFolder)
+    setMessageId(latestCode.message_id)
+    setMessageFolder(sourceFolder)
+  }
 
   return (
-    <main className="verification-workspace">
-      <aside className="mailbox-picker" aria-label="邮箱列表">
-        <div className="mailbox-picker-tools">
-          <input aria-label="搜索邮箱" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索邮箱" />
-          <select aria-label="邮箱分组" value={groupId} onChange={(event) => chooseGroup(event.target.value)}>
-            <option value="">全部邮箱</option>
-            {groups.data?.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}
-          </select>
+    <main className="mail-workspace">
+      <section className="mail-column account-column" aria-label="邮箱列表">
+        <div className="mail-account-tools">
+          <input aria-label="搜索邮箱" type="search" value={accountQuery} onChange={(event) => setAccountQuery(event.target.value)} placeholder="搜索邮箱" />
+          <select aria-label="邮箱分组" value={groupId} onChange={(event) => chooseGroup(event.target.value)}><option value="">全部邮箱</option>{groups.data?.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select>
         </div>
-        <div className="mailbox-picker-list">
-          {visibleAccounts.map((account) => <button className={account.id === accountId ? 'mailbox-picker-active' : ''} type="button" onClick={() => chooseAccount(account.id)} key={account.id}>
-            <span className={`health-dot health-${account.mail_health_status}`} aria-hidden="true" />
-            <strong>{account.email}</strong>
-            <span className="mailbox-row-status">{healthLabels[account.mail_health_status] ?? account.mail_health_status}</span>
-          </button>)}
-          {!visibleAccounts.length && <div className="mailbox-picker-empty">没有匹配的邮箱</div>}
-        </div>
-        <div className="mailbox-picker-footer">已加载 {accounts.length} 个邮箱</div>
-      </aside>
-
-      <section className="verification-main">
-        {selectedAccount ? <>
-          <header className="selected-mailbox-header">
-            <div><h1>{selectedAccount.email}</h1><span className={`health-summary health-${selectedAccount.mail_health_status}`}>{healthText}</span></div>
-          </header>
-
-          <section className="latest-code-section" aria-labelledby="latest-code-title">
-            <div className="latest-code-result">
-              <h2 id="latest-code-title">最新验证码</h2>
-              {codes.isPending ? <div className="latest-code-placeholder" aria-live="polite">正在读取 Outlook 邮件…</div> : latestCode ? <div className="code-display-row"><strong className="latest-code-value">{latestCode.code}</strong><button className="copy-code-button" type="button" onClick={() => void copyCode(latestCode.code)}>{copiedCode === latestCode.code ? '已复制' : '复制'}</button></div> : <div className="latest-code-placeholder">{codes.data ? '最近没有找到验证码' : '尚未查询'}</div>}
-              {latestCode && <p>{latestCode.sender} · {new Date(latestCode.received_at).toLocaleString()}</p>}
-            </div>
-            <div className="latest-code-actions">
-              <button className="fetch-code-button" type="button" disabled={codes.isPending} onClick={() => codes.mutate()}>{codes.isPending ? '正在获取…' : '获取最新验证码'}</button>
-              <details className="query-settings">
-                <summary>查询设置</summary>
-                <label>查询范围<select value={recentMinutes} onChange={(event) => { setRecentMinutes(Number(event.target.value)); codes.reset() }}><option value={10}>最近 10 分钟</option><option value={30}>最近 30 分钟</option><option value={60}>最近 1 小时</option><option value={360}>最近 6 小时</option><option value={1440}>最近 24 小时</option></select></label>
-              </details>
-            </div>
-          </section>
-
-          {codes.error && <div className="verification-error" role="alert"><strong>验证码读取失败</strong><span>{codes.error.message}</span></div>}
-
-          <section className="recent-code-mails" aria-labelledby="recent-mails-title">
-            <div className="recent-mails-heading"><h2 id="recent-mails-title">最近验证码邮件</h2>{codes.data && <span>{codes.data.items.length} 封</span>}</div>
-            {recentCodes.length ? <div className="recent-mail-list">{recentCodes.map((item) => <div className="recent-mail-row" key={`${item.folder}:${item.message_id}:${item.code}`}>
-              <div><strong>{item.subject || '验证码邮件'}</strong><span>{item.sender}</span></div>
-              <time dateTime={item.received_at}>{new Date(item.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
-              <button type="button" onClick={() => void copyCode(item.code)}>{copiedCode === item.code ? '已复制' : item.code}</button>
-            </div>)}</div> : <div className="recent-mails-empty">{codes.data ? '最近时间范围内没有识别到验证码邮件。' : '获取验证码后，最近结果会显示在这里。'}</div>}
-          </section>
-
-          <details className="mailbox-health-details">
-            <summary><span className={`health-dot health-${selectedAccount.mail_health_status}`} aria-hidden="true" />邮箱状态：{healthText} · 最近成功收信 {lastSuccess}<span>查看详情</span></summary>
-            <dl>
-              <div><dt>授权</dt><dd>{selectedAccount.authorization_status}</dd></div>
-              <div><dt>Token</dt><dd>{selectedAccount.token_status}</dd></div>
-              <div><dt>代理</dt><dd>{selectedAccount.proxy_health_status}</dd></div>
-              {selectedAccount.health_reason_code && <div><dt>诊断</dt><dd>{selectedAccount.health_reason_code}</dd></div>}
-            </dl>
-          </details>
-        </> : <div className="verification-empty"><h2>还没有可用邮箱</h2><p>请从“管理”中导入 Outlook 邮箱。</p></div>}
+        <div className="mail-account-list">{visibleAccounts.map((account) => <button className={account.id === accountId ? 'selected-row' : ''} type="button" onClick={() => chooseAccount(account.id)} key={account.id}><span className={`health-dot health-${account.mail_health_status}`} aria-hidden="true" /><span><strong>{account.email}</strong><small>{healthLabel(account)}</small></span></button>)}{!visibleAccounts.length && <Empty>没有匹配的邮箱</Empty>}</div>
+        <div className="mail-account-footer">已加载 {accounts.length} 个邮箱</div>
       </section>
+      <section className="mail-column">
+        <div className="column-title mail-list-toolbar">
+          <span>邮件</span>
+          <select aria-label="邮件文件夹" value={folder} onChange={(event) => { setFolder(event.target.value as typeof folder); setMessageId(''); setMessageFolder('') }}>
+            <option value="inbox">收件箱</option>
+            <option value="junkemail">垃圾邮件</option>
+            <option value="deleteditems">已删除</option>
+            <option value="all">收件箱 + 垃圾邮件</option>
+          </select>
+          <button type="button" disabled={mail.isFetching} onClick={() => void mail.refetch()}>{mail.isFetching ? '读取中' : '刷新'}</button>
+        </div>
+        {selectedAccount && <section className="mail-code-panel" aria-label="验证码工具">
+          <div className="mail-code-result"><span>最新验证码</span>{codes.isPending ? <strong className="mail-code-muted" aria-live="polite">正在读取…</strong> : latestCode ? <strong>{latestCode.code}</strong> : <strong className="mail-code-muted">{codes.data ? '未找到' : '尚未查询'}</strong>}{latestCode && <small>{latestCode.sender} · {new Date(latestCode.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>}</div>
+          <div className="mail-code-actions"><button className="mail-code-primary" type="button" disabled={codes.isPending} onClick={() => codes.mutate()}>{codes.isPending ? '正在获取…' : '获取验证码'}</button>{latestCode && <button type="button" onClick={() => void copyCode(latestCode.code)}>{copiedCode === latestCode.code ? '已复制' : '复制'}</button>}{latestCode && <button type="button" onClick={viewCodeSource}>查看邮件</button>}<details><summary>查询设置</summary><label>时间范围<select value={recentMinutes} onChange={(event) => { setRecentMinutes(Number(event.target.value)); codes.reset() }}><option value={10}>10 分钟</option><option value={30}>30 分钟</option><option value={60}>1 小时</option><option value={360}>6 小时</option><option value={1440}>24 小时</option></select></label></details></div>
+          {codes.error && <div className="mail-code-error" role="alert">{codes.error.message}</div>}
+        </section>}
+        {mail.error ? <div className="mail-query-state mail-query-error" role="alert"><strong>读取失败</strong><span>{mail.error.message}</span></div> : mail.data?.items.length ? mail.data.items.map((message) => { const codeKey = `${message.folder}:${message.id}`; return <button className={message.id === messageId && message.folder === messageFolder ? 'selected-row' : ''} type="button" onClick={() => { setMessageId(message.id); setMessageFolder(message.folder) }} key={codeKey}><strong>{message.subject || '无主题'}</strong><span>{message.sender}{codesByMessage.has(codeKey) && <b className="detected-code">验证码 {codesByMessage.get(codeKey)}</b>}</span><small>{message.body_preview}</small></button> }) : mail.isLoading ? <Empty>正在连接邮箱…</Empty> : mail.data ? <div className="mail-query-state" aria-live="polite"><strong>{mail.data.method.toUpperCase()} 已连接</strong><span>邮件服务器返回 0 封，此文件夹目前为空。</span></div> : <Empty>请选择邮箱账号</Empty>}
+      </section>
+      <section className="mail-detail"><div className="column-title">邮件详情</div>{detail.error ? <div className="mail-query-state mail-query-error" role="alert"><strong>详情读取失败</strong><span>{detail.error.message}</span></div> : detail.data ? <article><div className="mail-detail-heading"><div><h2>{detail.data.subject || '无主题'}</h2><p>{detail.data.sender} · {detail.data.received_at}</p></div><div className="mail-actions"><button type="button" disabled={detail.data.is_read || markRead.isPending} onClick={() => markRead.mutate()}>{detail.data.is_read ? '已读' : '标记已读'}</button><button type="button" disabled={raw.isPending} onClick={() => raw.mutate()}>下载原始 MIME</button><button className="danger-button" type="button" disabled={remove.isPending} onClick={() => { if (window.confirm('删除这封邮件？此操作会同步到远端邮箱。')) remove.mutate() }}>删除</button></div></div>{(markRead.error ?? remove.error ?? raw.error ?? attachment.error) && <div className="inline-error">{(markRead.error ?? remove.error ?? raw.error ?? attachment.error)?.message}</div>}<div className="recipient-line">收件人：{detail.data.recipients.join(', ') || '—'}{detail.data.cc.length ? ` · 抄送：${detail.data.cc.join(', ')}` : ''}</div>{detail.data.attachments.length > 0 && <div className="attachment-list"><strong>附件</strong>{detail.data.attachments.map((item) => <button type="button" disabled={attachment.isPending} onClick={() => attachment.mutate(item)} key={item.id}>{item.name} · {Math.ceil(item.size / 1024)} KB</button>)}</div>}<pre>{detail.data.body}</pre></article> : <Empty>{detail.isLoading ? '正在加载详情…' : '选择一封邮件查看详情'}</Empty>}</section>
     </main>
   )
 }

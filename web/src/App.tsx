@@ -4,7 +4,6 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { api, setApiToken, type Account, type AccountViews, type FleetSummary, type StatusCount } from './api/client'
 import {
   AutomationView,
-  CodesView,
   ImportsView,
   JobsView,
   MailView,
@@ -15,7 +14,7 @@ import {
 } from './Views'
 import './styles.css'
 
-type View = 'fleet' | 'mail' | 'codes' | 'organization' | 'imports' | 'automation' | 'projects' | 'settings' | 'jobs'
+type View = 'fleet' | 'mail' | 'organization' | 'imports' | 'automation' | 'projects' | 'settings' | 'jobs'
 const terminalJobStates = new Set(['completed', 'partial', 'failed', 'cancelled'])
 const managementViews: [View, string, string][] = [
   ['fleet', '账号总览', '健康、筛选与批量管理'],
@@ -172,7 +171,7 @@ function FleetView({
 
 function AuthenticatedApp() {
   const queryClient = useQueryClient()
-  const [view, setView] = useState<View>('codes')
+  const [view, setView] = useState<View>('mail')
   const [healthFilter, setHealthFilter] = useState('')
   const [smartView, setSmartView] = useState('')
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
@@ -229,7 +228,7 @@ function AuthenticatedApp() {
   const error = accounts.error ?? (view === 'fleet' ? summary.error ?? accountViews.error : null)
   const accountItems = accounts.data?.pages.flatMap((page) => page.items) ?? []
   const navigate = (nextView: View) => {
-    if (nextView === 'codes' || nextView === 'mail') {
+    if (nextView === 'mail') {
       setHealthFilter('')
       setSmartView('')
     }
@@ -241,9 +240,8 @@ function AuthenticatedApp() {
   return (
     <div className="app-shell">
       <header className="simple-topbar">
-        <button className="brand-button" type="button" onClick={() => navigate('codes')}>Smart Email Manager</button>
+        <button className="brand-button" type="button" onClick={() => navigate('mail')}>Smart Email Manager</button>
         <nav className="primary-nav" aria-label="主要功能">
-          <button type="button" className={view === 'codes' ? 'primary-nav-active' : ''} aria-current={view === 'codes' ? 'page' : undefined} onClick={() => navigate('codes')}>验证码</button>
           <button type="button" className={view === 'mail' ? 'primary-nav-active' : ''} aria-current={view === 'mail' ? 'page' : undefined} onClick={() => navigate('mail')}>邮箱</button>
         </nav>
         <div className="management-menu">
@@ -269,7 +267,6 @@ function AuthenticatedApp() {
       {activeJob.data && <section className="job-banner" aria-live="polite"><div><strong>健康检查任务</strong><span>{activeJob.data.status}</span></div><div>{activeJob.data.succeeded_count}/{activeJob.data.total_count} 完成</div></section>}
       {view === 'fleet' && <FleetView summary={summary} accounts={accountItems} healthFilter={healthFilter} setHealthFilter={setHealthFilter} accountViews={accountViews.data} smartView={smartView} setSmartView={setSmartView} isLoading={summary.isLoading || accounts.isLoading} hasNextPage={Boolean(accounts.hasNextPage)} isFetchingNextPage={accounts.isFetchingNextPage} loadNextPage={() => void accounts.fetchNextPage()} />}
       {view === 'mail' && <MailView accounts={accountItems} />}
-      {view === 'codes' && <CodesView accounts={accountItems} />}
       {view === 'organization' && <OrganizationView accounts={accountItems} />}
       {view === 'imports' && <ImportsView />}
       {view === 'automation' && <AutomationView />}
