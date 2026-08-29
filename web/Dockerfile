@@ -12,7 +12,7 @@ COPY contracts ./contracts
 COPY web ./web
 RUN pnpm web:build
 
-FROM nginx:1.29-alpine
+FROM nginx:1.31-alpine
 COPY web/nginx-main.conf /etc/nginx/nginx.conf
 COPY web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /workspace/web/dist /usr/share/nginx/html
