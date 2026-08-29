@@ -50,7 +50,7 @@ jobs:
         with:
           enable-cache: true
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         if: matrix.python-version == '3.14'
         with:
           version: 11.22.0
@@ -136,7 +136,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.22.0
       - uses: actions/setup-node@v6
