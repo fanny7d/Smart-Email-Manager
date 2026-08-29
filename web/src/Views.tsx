@@ -483,37 +483,108 @@ export function MailView({ accounts }: { accounts: Account[] }) {
 
 
 export function CodesView({ accounts }: { accounts: Account[] }) {
-  const [accountId, setAccountId] = useState('')
+  const [accountId, setAccountId] = useState(accounts[0]?.id ?? '')
+  const [query, setQuery] = useState('')
+  const [groupId, setGroupId] = useState('')
   const [recentMinutes, setRecentMinutes] = useState(30)
+  const [copiedCode, setCopiedCode] = useState('')
+  const groups = useQuery({ queryKey: ['groups'], queryFn: api.groups })
   const codes = useMutation({
-    mutationFn: () => accountId
-      ? api.verificationCodes(accountId, recentMinutes)
-      : api.queryVerificationCodes([], recentMinutes, 100),
+    mutationFn: () => api.verificationCodes(accountId, recentMinutes),
   })
+  useEffect(() => {
+    if (accounts.length && !accounts.some((account) => account.id === accountId)) setAccountId(accounts[0].id)
+  }, [accountId, accounts])
+
+  const selectedAccount = accounts.find((account) => account.id === accountId)
+  const visibleAccounts = accounts.filter((account) => {
+    const matchesQuery = account.email.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
+    return matchesQuery && (!groupId || account.group_id === groupId)
+  })
+  const recentCodes = codes.data?.items.slice(0, 3) ?? []
+  const latestCode = recentCodes[0]
+  const healthLabels: Record<string, string> = { healthy: '正常', degraded: '需留意', failed: '连接失败', unknown: '尚未检查' }
+  const healthText = selectedAccount ? healthLabels[selectedAccount.mail_health_status] ?? selectedAccount.mail_health_status : '未选择'
+  const lastSuccess = selectedAccount?.last_mail_success_at ? new Date(selectedAccount.last_mail_success_at).toLocaleString() : '暂无成功记录'
+
+  const chooseAccount = (nextAccountId: string) => {
+    setAccountId(nextAccountId)
+    setCopiedCode('')
+    codes.reset()
+  }
+  const chooseGroup = (nextGroupId: string) => {
+    setGroupId(nextGroupId)
+    const firstMatch = accounts.find((account) => !nextGroupId || account.group_id === nextGroupId)
+    if (firstMatch && firstMatch.id !== accountId) chooseAccount(firstMatch.id)
+  }
+  const copyCode = async (code: string) => {
+    await navigator.clipboard.writeText(code)
+    setCopiedCode(code)
+  }
 
   return (
-    <main className="codes-workspace">
-      <section className="workspace-card codes-toolbar">
-        <div className="panel-header"><div><div className="eyebrow">OUTLOOK VERIFICATION CODES</div><h2>验证码中心</h2></div></div>
-        <div className="codes-controls">
-          <label>查询范围<select value={accountId} onChange={(event) => setAccountId(event.target.value)}><option value="">全部启用邮箱（最多 100 个）</option>{accounts.map((account) => <option value={account.id} key={account.id}>{account.email}</option>)}</select></label>
-          <label>最近时间<select value={recentMinutes} onChange={(event) => setRecentMinutes(Number(event.target.value))}><option value={10}>10 分钟</option><option value={30}>30 分钟</option><option value={60}>1 小时</option><option value={360}>6 小时</option><option value={1440}>24 小时</option></select></label>
-          <button type="button" disabled={codes.isPending} onClick={() => codes.mutate()}>{codes.isPending ? '正在查询…' : '获取验证码'}</button>
+    <main className="verification-workspace">
+      <aside className="mailbox-picker" aria-label="邮箱列表">
+        <div className="mailbox-picker-tools">
+          <input aria-label="搜索邮箱" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索邮箱" />
+          <select aria-label="邮箱分组" value={groupId} onChange={(event) => chooseGroup(event.target.value)}>
+            <option value="">全部邮箱</option>
+            {groups.data?.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}
+          </select>
         </div>
-        <p className="muted-copy">只读查询收件箱和垃圾邮件，不会自动标记已读或删除邮件。</p>
-      </section>
-      {codes.error && <div className="inline-error">{codes.error.message}</div>}
-      {codes.data && <div className="codes-summary">已检查 {codes.data.checked_accounts} 个邮箱 · 找到 {codes.data.items.length} 个验证码{codes.data.failed_accounts ? ` · ${codes.data.failed_accounts} 个失败` : ''}</div>}
-      <section className="codes-grid">
-        {codes.data?.items.map((item) => <article className="workspace-card code-card" key={`${item.account_id}:${item.folder}:${item.message_id}:${item.code}`}>
-          <div className="code-value">{item.code}</div>
-          <button type="button" onClick={() => void navigator.clipboard.writeText(item.code)}>复制验证码</button>
-          <strong>{item.email}</strong>
-          <span>{item.subject || '无主题'}</span>
-          <small>{item.sender} · {new Date(item.received_at).toLocaleString()}</small>
-          <small>{item.folder === 'junkemail' ? '垃圾邮件' : '收件箱'} · {item.method.toUpperCase()} · {item.confidence === 'high' ? '高置信度' : '中置信度'}</small>
-        </article>)}
-        {codes.data && !codes.data.items.length && <Empty>最近时间范围内没有识别到验证码邮件。</Empty>}
+        <div className="mailbox-picker-list">
+          {visibleAccounts.map((account) => <button className={account.id === accountId ? 'mailbox-picker-active' : ''} type="button" onClick={() => chooseAccount(account.id)} key={account.id}>
+            <span className={`health-dot health-${account.mail_health_status}`} aria-hidden="true" />
+            <strong>{account.email}</strong>
+            <span className="mailbox-row-status">{healthLabels[account.mail_health_status] ?? account.mail_health_status}</span>
+          </button>)}
+          {!visibleAccounts.length && <div className="mailbox-picker-empty">没有匹配的邮箱</div>}
+        </div>
+        <div className="mailbox-picker-footer">已加载 {accounts.length} 个邮箱</div>
+      </aside>
+
+      <section className="verification-main">
+        {selectedAccount ? <>
+          <header className="selected-mailbox-header">
+            <div><h1>{selectedAccount.email}</h1><span className={`health-summary health-${selectedAccount.mail_health_status}`}>{healthText}</span></div>
+          </header>
+
+          <section className="latest-code-section" aria-labelledby="latest-code-title">
+            <div className="latest-code-result">
+              <h2 id="latest-code-title">最新验证码</h2>
+              {codes.isPending ? <div className="latest-code-placeholder" aria-live="polite">正在读取 Outlook 邮件…</div> : latestCode ? <div className="code-display-row"><strong className="latest-code-value">{latestCode.code}</strong><button className="copy-code-button" type="button" onClick={() => void copyCode(latestCode.code)}>{copiedCode === latestCode.code ? '已复制' : '复制'}</button></div> : <div className="latest-code-placeholder">{codes.data ? '最近没有找到验证码' : '尚未查询'}</div>}
+              {latestCode && <p>{latestCode.sender} · {new Date(latestCode.received_at).toLocaleString()}</p>}
+            </div>
+            <div className="latest-code-actions">
+              <button className="fetch-code-button" type="button" disabled={codes.isPending} onClick={() => codes.mutate()}>{codes.isPending ? '正在获取…' : '获取最新验证码'}</button>
+              <details className="query-settings">
+                <summary>查询设置</summary>
+                <label>查询范围<select value={recentMinutes} onChange={(event) => { setRecentMinutes(Number(event.target.value)); codes.reset() }}><option value={10}>最近 10 分钟</option><option value={30}>最近 30 分钟</option><option value={60}>最近 1 小时</option><option value={360}>最近 6 小时</option><option value={1440}>最近 24 小时</option></select></label>
+              </details>
+            </div>
+          </section>
+
+          {codes.error && <div className="verification-error" role="alert"><strong>验证码读取失败</strong><span>{codes.error.message}</span></div>}
+
+          <section className="recent-code-mails" aria-labelledby="recent-mails-title">
+            <div className="recent-mails-heading"><h2 id="recent-mails-title">最近验证码邮件</h2>{codes.data && <span>{codes.data.items.length} 封</span>}</div>
+            {recentCodes.length ? <div className="recent-mail-list">{recentCodes.map((item) => <div className="recent-mail-row" key={`${item.folder}:${item.message_id}:${item.code}`}>
+              <div><strong>{item.subject || '验证码邮件'}</strong><span>{item.sender}</span></div>
+              <time dateTime={item.received_at}>{new Date(item.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+              <button type="button" onClick={() => void copyCode(item.code)}>{copiedCode === item.code ? '已复制' : item.code}</button>
+            </div>)}</div> : <div className="recent-mails-empty">{codes.data ? '最近时间范围内没有识别到验证码邮件。' : '获取验证码后，最近结果会显示在这里。'}</div>}
+          </section>
+
+          <details className="mailbox-health-details">
+            <summary><span className={`health-dot health-${selectedAccount.mail_health_status}`} aria-hidden="true" />邮箱状态：{healthText} · 最近成功收信 {lastSuccess}<span>查看详情</span></summary>
+            <dl>
+              <div><dt>授权</dt><dd>{selectedAccount.authorization_status}</dd></div>
+              <div><dt>Token</dt><dd>{selectedAccount.token_status}</dd></div>
+              <div><dt>代理</dt><dd>{selectedAccount.proxy_health_status}</dd></div>
+              {selectedAccount.health_reason_code && <div><dt>诊断</dt><dd>{selectedAccount.health_reason_code}</dd></div>}
+            </dl>
+          </details>
+        </> : <div className="verification-empty"><h2>还没有可用邮箱</h2><p>请从“管理”中导入 Outlook 邮箱。</p></div>}
       </section>
     </main>
   )
